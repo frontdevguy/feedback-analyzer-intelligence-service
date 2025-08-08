@@ -1,0 +1,286 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true || github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to EC2
+        env:
+          INTELLIGENCE_EC2_IP: ${{ secrets.INTELLIGENCE_EC2_IP }}
+          PRIVATE_KEY: ${{ secrets.INTELLIGENCE_EC2_SSH_KEY }}
+          INTELLIGENCE_EMAIL: "hello@theuncproject.com"
+        run: |
+          echo "$PRIVATE_KEY" | base64 -d > private_key.pem
+          chmod 600 private_key.pem
+
+          cat > deploy.sh << 'EOL'
+          #!/bin/bash
+
+          DOMAIN="intelligence.theuncproject.com"
+          EMAIL="hello@theuncproject.com"
+
+          # Update and install packages
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3-dev python3-pip python3-venv git nginx certbot python3-certbot-nginx
+
+          # Install CloudWatch agent
+          wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+          sudo dpkg -i amazon-cloudwatch-agent.deb
+          rm amazon-cloudwatch-agent.deb
+
+          # Configure CloudWatch agent
+          sudo bash -c 'cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json' << 'EOF'
+          {
+              "agent": {
+                  "run_as_user": "root"
+              },
+              "logs": {
+                  "logs_collected": {
+                      "files": {
+                          "collect_list": [
+                              {
+                                  "file_path": "/opt/unc-intelligence/logs/app.log",
+                                  "log_group_name": "/unc-intelligence/application",
+                                  "log_stream_name": "{instance_id}/application",
+                                  "timezone": "UTC"
+                              },
+                              {
+                                  "file_path": "/var/log/nginx/access.log",
+                                  "log_group_name": "/unc-intelligence/nginx",
+                                  "log_stream_name": "{instance_id}/nginx-access",
+                                  "timezone": "UTC"
+                              },
+                              {
+                                  "file_path": "/var/log/nginx/error.log",
+                                  "log_group_name": "/unc-intelligence/nginx",
+                                  "log_stream_name": "{instance_id}/nginx-error",
+                                  "timezone": "UTC"
+                              }
+                          ]
+                      }
+                  }
+              }
+          }
+          EOF
+
+          # Start CloudWatch agent
+          sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+          sudo systemctl enable amazon-cloudwatch-agent
+          sudo systemctl restart amazon-cloudwatch-agent
+
+          # Setup application
+          cd /opt/unc-intelligence || sudo mkdir -p /opt/unc-intelligence
+          sudo mkdir -p /opt/unc-intelligence/logs
+          sudo chown -R ubuntu:ubuntu /opt/unc-intelligence
+          cd /opt/unc-intelligence
+
+          # Remove existing directory contents if not a git repo
+          if [ ! -d ".git" ]; then
+            rm -rf ./* ./.* 2>/dev/null || true
+            git clone https://github.com/${{ github.repository }}.git .
+            python3 -m venv venv
+          else
+            git fetch origin main
+            git reset --hard origin/main
+          fi
+
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+          # Get number of CPU cores and calculate workers
+          echo "Calculating optimal number of workers..."
+          WORKER_COUNT=$(nproc)
+
+          # Create service file with logging configuration
+          sudo bash -c "cat > /etc/systemd/system/unc-intelligence.service" << EOF
+          [Unit]
+          Description=Unc Intelligence FastAPI Application
+          After=network.target
+
+          [Service]
+          User=ubuntu
+          Group=ubuntu
+          WorkingDirectory=/opt/unc-intelligence
+          Environment="PATH=/opt/unc-intelligence/venv/bin"
+          Environment="PYTHONPATH=/opt/unc-intelligence"
+          ExecStart=/opt/unc-intelligence/venv/bin/uvicorn \
+            app:app \
+            --host 0.0.0.0 \
+            --port 8000 \
+            --workers ${WORKER_COUNT} \
+            --log-config /opt/unc-intelligence/log_config.json
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          # Create logging configuration
+          cat > /opt/unc-intelligence/log_config.json << 'EOF'
+          {
+              "version": 1,
+              "disable_existing_loggers": false,
+              "formatters": {
+                  "standard": {
+                      "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+                  }
+              },
+              "handlers": {
+                  "default": {
+                      "formatter": "standard",
+                      "class": "logging.FileHandler",
+                      "filename": "/opt/unc-intelligence/logs/app.log"
+                  }
+              },
+              "loggers": {
+                  "": {
+                      "handlers": ["default"],
+                      "level": "INFO"
+                  },
+                  "uvicorn": {
+                      "handlers": ["default"],
+                      "level": "INFO"
+                  },
+                  "uvicorn.error": {
+                      "level": "INFO"
+                  },
+                  "uvicorn.access": {
+                      "level": "INFO"
+                  }
+              }
+          }
+          EOF
+
+          sudo bash -c "cat > /etc/nginx/sites-available/unc-intelligence" << EOF
+          server {
+              server_name ${DOMAIN};
+
+              location / {
+                  proxy_pass http://localhost:8000;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade \$http_upgrade;
+                  proxy_set_header Connection 'upgrade';
+                  proxy_set_header Host \$host;
+                  proxy_cache_bypass \$http_upgrade;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+
+                  # Add timeout and retry settings
+                  proxy_connect_timeout 60s;
+                  proxy_send_timeout 60s;
+                  proxy_read_timeout 60s;
+                  proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+                  proxy_next_upstream_tries 3;
+                  proxy_next_upstream_timeout 10s;
+
+                  # Return 503 after all retries fail
+                  error_page 502 503 504 /error.html;
+              }
+
+              # Custom error page
+              location = /error.html {
+                  internal;
+                  return 503 '{"error": "Service temporarily unavailable. Please try again later."}';
+                  default_type application/json;
+              }
+
+              add_header X-Frame-Options "SAMEORIGIN" always;
+              add_header X-XSS-Protection "1; mode=block" always;
+              add_header X-Content-Type-Options "nosniff" always;
+              add_header Referrer-Policy "no-referrer-when-downgrade" always;
+              add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+              add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+          }
+          EOF
+
+          sudo ln -sf /etc/nginx/sites-available/unc-intelligence /etc/nginx/sites-enabled/
+          sudo rm -f /etc/nginx/sites-enabled/default
+          sudo systemctl restart nginx
+
+          # Check if SSL is already configured in nginx
+          if ! grep -q "ssl_certificate" "/etc/nginx/sites-enabled/unc-intelligence"; then
+            echo "No SSL configuration found. Running certbot..."
+            sudo certbot --nginx \
+              --non-interactive \
+              --agree-tos \
+              --email "${EMAIL}" \
+              --domains "${DOMAIN}" \
+              --redirect
+          else
+            echo "SSL already configured for ${DOMAIN}. Skipping certbot."
+          fi
+
+          sudo systemctl daemon-reload
+          sudo systemctl enable unc-intelligence
+          sudo systemctl restart unc-intelligence
+
+          # Install netstat if not available
+          if ! command -v netstat &> /dev/null; then
+              sudo apt-get install -y net-tools
+          fi
+
+          # Only restart nginx if the backend is confirmed running
+          echo "Restarting nginx..."
+          sudo systemctl restart nginx
+
+          # Show service status after restart
+          echo "Checking unc-intelligence service status..."
+          sudo systemctl status unc-intelligence --no-pager || true
+          echo "Recent service logs:"
+          sudo journalctl -u unc-intelligence -n 50 --no-pager || true
+
+          echo "Testing nginx proxy to backend..."
+          NGINX_RESPONSE=$(curl -s -w "\n%{http_code}" http://localhost/health/)
+          NGINX_HTTP_CODE=$(echo "$NGINX_RESPONSE" | tail -n1)
+          NGINX_BODY=$(echo "$NGINX_RESPONSE" | head -n1)
+          echo "Nginx proxy test result: $NGINX_HTTP_CODE"
+          echo "Response: $NGINX_BODY"
+
+          sudo systemctl enable certbot.timer
+          sudo systemctl start certbot.timer
+          EOL
+
+          for i in {1..5}; do
+            if ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@$INTELLIGENCE_EC2_IP "echo 'SSH connection successful'"; then
+              break
+            fi
+            echo "Waiting for SSH to be available... Attempt \$i"
+            sleep 10
+          done
+
+          scp -i private_key.pem -o StrictHostKeyChecking=no deploy.sh ubuntu@$INTELLIGENCE_EC2_IP:~/deploy.sh
+          ssh -i private_key.pem -o StrictHostKeyChecking=no ubuntu@$INTELLIGENCE_EC2_IP "chmod +x ~/deploy.sh && ~/deploy.sh"
+
+          rm -f private_key.pem deploy.sh
+
+      - name: Deployment Status
+        env:
+          INTELLIGENCE_DOMAIN: "intelligence.theuncproject.com"
+        run: |
+          echo "Deployment completed successfully!"
+          echo "Application is available at https://$INTELLIGENCE_DOMAIN"
