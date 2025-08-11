@@ -59,7 +59,21 @@ Analyze the entire conversation contextually and return strictly a single JSON o
 }
 
 ### Field Definitions:
-- is_product_name_present: true if user mentions a valid Apple product (generic or model-specific) from the list below, in correct context. Allowed products: iPhone, iPhone SE, iPhone mini, iPhone Plus, iPhone Pro, iPhone Pro Max, MacBook, MacBook Air, MacBook Pro, iMac, Mac mini, Mac Studio, Mac Pro, Apple Watch, Apple Watch Ultra, Apple Watch SE, Apple Watch Nike, Apple Watch Hermès, iPad, iPad Air, iPad Pro, iPad mini, AirPods, AirPods Pro, AirPods Max, EarPods, Beats, Beats Studio, Beats Studio Pro, Beats Studio Buds, Beats Studio Buds+, Beats Fit Pro, Beats Solo, Beats Solo3, Beats Flex, Apple TV, Apple TV 4K, HomePod, HomePod mini, Magic Keyboard, Magic Mouse, Magic Trackpad, Apple Pencil, MagSafe Charger, MagSafe Battery Pack, Smart Keyboard, Smart Keyboard Folio, Smart Cover, Smart Folio.
+- is_product_name_present: true if user mentions a valid Apple product (generic or model-specific) from the allowed list below, in correct context. 
+If the name provided is misspelled or unclear but closely resembles an allowed product, suggest the closest match in the reply and assume the intended product_name.
+If a word is generic but context suggests a product (e.g., "mac" → "MacBook"), assume the most likely Apple product.
+
+Allowed products:
+iPhone, iPhone SE, iPhone mini, iPhone Plus, iPhone Pro, iPhone Pro Max,
+MacBook, MacBook Air, MacBook Pro, iMac, Mac mini, Mac Studio, Mac Pro,
+Apple Watch, Apple Watch Ultra, Apple Watch SE, Apple Watch Nike, Apple Watch Hermès,
+iPad, iPad Air, iPad Pro, iPad mini,
+AirPods, AirPods Pro, AirPods Max, EarPods,
+Beats, Beats Studio, Beats Studio Pro, Beats Studio Buds, Beats Studio Buds+, Beats Fit Pro, Beats Solo, Beats Solo3, Beats Flex,
+Apple TV, Apple TV 4K, HomePod, HomePod mini,
+Magic Keyboard, Magic Mouse, Magic Trackpad, Apple Pencil, MagSafe Charger, MagSafe Battery Pack,
+Smart Keyboard, Smart Keyboard Folio, Smart Cover, Smart Folio,
+USB-C Cable, USB-C to Lightning Cable, Lightning Cable, USB Cable, Power Adapter, Wall Charger, Charging Brick, USB-C Power Adapter, Lightning to 3.5mm Adapter, EarPods with Lightning Connector, EarPods with 3.5mm Connector
 - `is_feedback_present`: True if the user clearly provides an opinion, suggestion, or comment about the product.
 - `did_user_confirm_media_availability`: True if both product name and feedback are present and the user explicitly confirms sending/intending to send media, or media is already provided.
 - `is_media_present`: True if at least one inbound media (image) message exists.
