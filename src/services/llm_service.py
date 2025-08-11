@@ -184,10 +184,10 @@ Analyze the entire conversation contextually and return strictly a single JSON o
             ):
                 result["should_persist_reply"] = False
                 result["reply"] = (
-                    "We detected misuse of the system, and your access has been temporarily suspended for 5 minutes. Thank you for your understanding."
+                    "We detected misuse of the system, and your access has been temporarily suspended for 1 minute. Thank you for your understanding."
                 )
                 result["user_limited_until"] = (
-                    datetime.datetime.now() + datetime.timedelta(minutes=5)
+                    datetime.datetime.now() + datetime.timedelta(minutes=1)
                 ).isoformat()
                 result["reopen_session"] = True
 
