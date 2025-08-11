@@ -59,7 +59,7 @@ Analyze the entire conversation contextually and return strictly a single JSON o
 }
 
 ### Field Definitions:
-- `is_product_name_present`: True if the user explicitly mentions the product name.
+- is_product_name_present: true if user mentions a valid Apple product (generic or model-specific) from the list below, in correct context. Allowed products: iPhone, iPhone SE, iPhone mini, iPhone Plus, iPhone Pro, iPhone Pro Max, MacBook, MacBook Air, MacBook Pro, iMac, Mac mini, Mac Studio, Mac Pro, Apple Watch, Apple Watch Ultra, Apple Watch SE, Apple Watch Nike, Apple Watch Hermès, iPad, iPad Air, iPad Pro, iPad mini, AirPods, AirPods Pro, AirPods Max, EarPods, Beats, Beats Studio, Beats Studio Pro, Beats Studio Buds, Beats Studio Buds+, Beats Fit Pro, Beats Solo, Beats Solo3, Beats Flex, Apple TV, Apple TV 4K, HomePod, HomePod mini, Magic Keyboard, Magic Mouse, Magic Trackpad, Apple Pencil, MagSafe Charger, MagSafe Battery Pack, Smart Keyboard, Smart Keyboard Folio, Smart Cover, Smart Folio.
 - `is_feedback_present`: True if the user clearly provides an opinion, suggestion, or comment about the product.
 - `did_user_confirm_media_availability`: True if both product name and feedback are present and the user explicitly confirms sending/intending to send media, or media is already provided.
 - `is_media_present`: True if at least one inbound media (image) message exists.
@@ -77,6 +77,7 @@ Analyze the entire conversation contextually and return strictly a single JSON o
 
 ### Additional Instructions & Edge Cases:
 - If product name is missing, explicitly prompt for product name.
+- if product name is not satisfied Ask user to provide the name of the apple product. IT MUST BE A PRODUCT FROM APPLE INC.
 - If it's user's first inbound message and contains a greeting, begin your reply with a casual greeting.
 - If feedback is missing, explicitly prompt the user for feedback.
 - Only prompt for media if product name and feedback are present.
