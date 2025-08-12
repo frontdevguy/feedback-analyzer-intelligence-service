@@ -1,8 +1,9 @@
 import json
 from typing import List, Dict, Any
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIStatusError, RateLimitError
 from src.utils.logger import get_logger
 import datetime
+import asyncio
 
 logger = get_logger(__name__)
 
@@ -172,16 +173,44 @@ USB-C Cable, USB-C to Lightning Cable, Lightning Cable, USB Cable, Power Adapter
 
             user_message_content = self._convert_messages_to_string(messages)
 
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_message_content},
-                ],
-                # temperature=self.temperature,
-                # max_tokens=self.max_tokens,
-                response_format={"type": "json_object"},
-            )
+            response = None
+            max_attempts = 3
+            wait_seconds = 1
+            for attempt_index in range(max_attempts):
+                try:
+                    response = await self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": self.system_prompt},
+                            {"role": "user", "content": user_message_content},
+                        ],
+                        # temperature=self.temperature,
+                        # max_tokens=self.max_tokens,
+                        response_format={"type": "json_object"},
+                    )
+                    break
+                except RateLimitError:
+                    if attempt_index < max_attempts - 1:
+                        logger.warning(
+                            "OpenAI rate limited; retrying",
+                            attempt=attempt_index + 1,
+                            max_attempts=max_attempts,
+                            wait_seconds=wait_seconds,
+                        )
+                        await asyncio.sleep(wait_seconds)
+                        continue
+                    raise
+                except APIStatusError as e:
+                    if e.status_code == 429 and attempt_index < max_attempts - 1:
+                        logger.warning(
+                            "OpenAI 429; retrying",
+                            attempt=attempt_index + 1,
+                            max_attempts=max_attempts,
+                            wait_seconds=wait_seconds,
+                        )
+                        await asyncio.sleep(wait_seconds)
+                        continue
+                    raise
 
             result = json.loads(response.choices[0].message.content)
 
