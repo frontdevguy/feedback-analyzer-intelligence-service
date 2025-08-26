@@ -1,4 +1,4 @@
-## TheUnc Intelligence Server
+## The Intelligence Service
 
 A FastAPI service that powers a WhatsApp-based customer feedback analyzer. It integrates with Twilio (WhatsApp) for messaging, OpenAI for conversation analysis, AWS DynamoDB for chat/session storage, Amazon S3 for media storage, PostgreSQL (via SQLAlchemy) for structured data, and provides a simple HTTP API.
 
