@@ -113,15 +113,15 @@ Note: Alembic migrations are not included; provision tables yourself or add migr
 ### Deployment
 GitHub Actions workflow `.github/workflows/deploy.yml` deploys to an Ubuntu EC2 instance on pushes/merged PRs to `main`:
 - Provisions system packages, Python venv, installs dependencies
-- Sets up a systemd service `unc-intelligence` to run Uvicorn on port 8000
-- Configures Nginx reverse proxy at `intelligence.theuncproject.com` with Certbot for SSL
+- Sets up a systemd service `feedback-intelligence` to run Uvicorn on port 8000
+- Configures Nginx reverse proxy at `intelligence.jurhua.com` with Certbot for SSL
 - Installs and configures Amazon CloudWatch Agent to forward app and Nginx logs
 
 Required repository secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `INTELLIGENCE_EC2_IP`, `INTELLIGENCE_EC2_SSH_KEY` (base64 PEM), etc.
 
 ### Directory structure
 ```
-Unc-Intelligence/
+feedback-intelligence/
   app.py                  # FastAPI app bootstrap
   config.py               # Env/Secrets Manager loader
   requirements.txt        # Python dependencies
@@ -143,4 +143,4 @@ Unc-Intelligence/
 
 ---
 
-For issues or deployment concerns, see the workflow at `/.github/workflows/deploy.yml` and logs in CloudWatch (`/unc-intelligence/*`).
+For issues or deployment concerns, see the workflow at `/.github/workflows/deploy.yml` and logs in CloudWatch (`/feedback-intelligence/*`).
